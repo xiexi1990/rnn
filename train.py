@@ -9,12 +9,17 @@ data_loader = DataLoader(args.batch_size, args.T, args.data_scale,
                          chars=args.chars, points_per_char=args.points_per_char)
 args.U = data_loader.max_U
 args.c_dimension = len(data_loader.chars) + 1
+args.mode = 'synthesis'
 args.action = 'train'
 
 model = m.Model(args)
 saver = tf.train.Saver()
 ckpt = tf.train.get_checkpoint_state('save_%s' % args.mode)
-with tf.Session() as sess:
+
+
+config = tf.ConfigProto()
+config.gpu_options.allow_growth = True
+with tf.Session(config=config) as sess:
  #   saver.restore(sess, ckpt.model_checkpoint_path)
     sess.run(tf.initialize_all_variables())
     for e in range(args.num_epochs):
@@ -25,7 +30,7 @@ with tf.Session() as sess:
             if args.mode == 'predict':
                 feed_dict = {model.x: x, model.y: y, model.batch_size: args.batch_size}
             if args.mode == 'synthesis':
-                feed_dict = {model.x: x, model.y: y, model.c_vec: c_vec}
+                feed_dict = {model.x: x, model.y: y, model.c_vec: c_vec, model.tensor_batch_size: args.batch_size}
             # print c
             # import matplotlib.pyplot as plt
             # plt.imshow(c_vec[0], interpolation='nearest')

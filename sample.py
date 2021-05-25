@@ -13,12 +13,15 @@ args.c_dimension = len(data_loader.chars) + 1
 args.T = 1
 args.batch_size = 1
 args.action = 'sample'
+args.mode = 'synthesis'
 
 model = m.Model(args)
 saver = tf.train.Saver()
 ckpt = tf.train.get_checkpoint_state('save_%s' % args.mode)
 
-with tf.Session() as sess:
+config = tf.ConfigProto()
+config.gpu_options.allow_growth = True
+with tf.Session(config=config) as sess:
     saver.restore(sess, ckpt.model_checkpoint_path)
     if args.mode == 'predict':
         strokes = model.sample(sess, 800)

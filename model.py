@@ -10,12 +10,18 @@ class Model():
             return tf.exp(-z / (2 * (1 - tf.square(rho)))) / \
                    (2 * np.pi * sigma1 * sigma2 * tf.sqrt(1 - tf.square(rho)))
 
+        # def expand(x, dim, N):
+        #     _expand_dims_list = [tf.expand_dims(x, dim) for _ in range(N)]
+        #     _concat_expand_dims_list = tf.concat(_expand_dims_list, dim)
+        #     return _concat_expand_dims_list
         def expand(x, dim, N):
-            return tf.concat([tf.expand_dims(x, dim) for _ in range(N)], dim)
+            _expand = tf.expand_dims(x, dim)
+            _one_hot = tf.squeeze(tf.one_hot(indices=[dim], depth=tf.rank(_expand), on_value=N, off_value=1))
+            return tf.tile(_expand, _one_hot)
 
         if args.action == 'train':
             args.b == 0
-        self.batch_size = tf.placeholder(dtype=tf.int32, shape=[], name='batch_size')
+        self.tensor_batch_size = tf.placeholder(dtype=tf.int32, shape=[], name='batch_size')
         self.args = args
 
         self.x = tf.placeholder(dtype=tf.float32, shape=[None, args.T, 3])
@@ -23,13 +29,13 @@ class Model():
 
      #   x = tf.split(self.x, args.T, 1)
      #   x_list = [tf.squeeze(x_i, [1]) for x_i in x]
-     #   x_list = tf.unstack(self.x, axis=1)
+        x_list = tf.unstack(self.x, axis=1)
         if args.mode == 'predict':
           #  self.cell = tf.nn.rnn_cell.BasicLSTMCell(args.rnn_state_size)
             self.stacked_cell = tf.nn.rnn_cell.MultiRNNCell([tf.nn.rnn_cell.BasicLSTMCell(num_units=args.rnn_state_size) for _ in  range(args.num_layers)] )
             # if (args.keep_prob < 1):  # training mode
             #     self.stacked_cell = tf.nn.rnn_cell.DropoutWrapper(self.stacked_cell, output_keep_prob=args.keep_prob)
-            self.init_state = self.stacked_cell.zero_state(self.batch_size, tf.float32)
+            self.init_state = self.stacked_cell.zero_state(self.tensor_batch_size, tf.float32)
 
             self.output_list, self.final_state = tf.nn.dynamic_rnn(self.stacked_cell, self.x, initial_state=self.init_state)
             # self.output_list, self.final_state = tf.nn.seq2seq.rnn_decoder(x_list, self.init_state, self.stacked_cell)
@@ -37,18 +43,20 @@ class Model():
             self.c_vec = tf.compat.v1.placeholder(dtype=tf.float32, shape=[None, args.U, args.c_dimension])
             self.cell1 = tf.nn.rnn_cell.BasicLSTMCell(args.rnn_state_size)
             self.cell2 = tf.nn.rnn_cell.BasicLSTMCell(args.rnn_state_size)
-            self.init_cell1_state = self.cell1.zero_state(self.batch_size, tf.float32)
-            self.init_cell2_state = self.cell2.zero_state(self.batch_size, tf.float32)
+            self.init_cell1_state = self.cell1.zero_state(self.tensor_batch_size, tf.float32)
+            self.init_cell2_state = self.cell2.zero_state(self.tensor_batch_size, tf.float32)
             cell1_state = self.init_cell1_state
             cell2_state = self.init_cell2_state
             self.output_list = []
             h2k_w = tf.Variable(tf.truncated_normal([args.rnn_state_size, args.K * 3], 0.0, 0.075, dtype=tf.float32))
             h2k_b = tf.Variable(tf.truncated_normal([args.K * 3], -3, 0.25, dtype=tf.float32))
-            self.init_kappa = tf.zeros([self.batch_size, args.K, 1])
-            self.init_w = tf.zeros([self.batch_size, args.c_dimension])
+            self.init_kappa = tf.zeros([self.tensor_batch_size, args.K, 1])
+            self.init_w = tf.zeros([self.tensor_batch_size, args.c_dimension])
             w = self.init_w
             kappa_prev = self.init_kappa
-            u = expand(expand(np.array([i for i in range(int(args.U))], dtype=np.float32), 0, args.K), 0, self.batch_size)
+            _np_array = np.array([i for i in range(int(args.U))], dtype=np.float32)
+            _expand_np_array = expand(_np_array, 0, args.K)
+            u = expand(_expand_np_array, 0, self.tensor_batch_size)
             DO_SHARE = False
             for t in range(args.T):
                 with tf.variable_scope("cell1", reuse=DO_SHARE):
@@ -108,7 +116,7 @@ class Model():
                     + (1 - self.end_of_stroke + eps) * (1 - y_end_of_stroke))
         )
 
-        self.loss = (self.loss_gaussian + self.loss_bernoulli) / (tf.cast(self.batch_size, tf.float32) * args.T)
+        self.loss = (self.loss_gaussian + self.loss_bernoulli) / (tf.cast(self.tensor_batch_size, tf.float32) * args.T)
         self.optimizer = tf.train.AdamOptimizer(learning_rate=args.learning_rate)
         self.train_op = self.optimizer.minimize(self.loss)
 
@@ -143,7 +151,8 @@ class Model():
                              self.init_cell1_state: cell1_state,
                              self.init_cell2_state: cell2_state,
                              self.init_w: w,
-                             self.init_kappa: kappa}
+                             self.init_kappa: kappa,
+                             self.tensor_batch_size: self.args.batch_size}
                 end_of_stroke, pi, mu1, mu2, sigma1, sigma2, rho, cell1_state, cell2_state, w, phi, kappa = sess.run(
                     [self.end_of_stroke, self.pi, self.mu1, self.mu2,
                      self.sigma1, self.sigma2, self.rho,
